@@ -1,9 +1,7 @@
 import prisma from '../config/prisma.js';
 
 // Acá usamos $queryRaw que es SQL puro, no el ORM de Prisma
-// Lo usamos porque el informe tiene queries muy complejas con subconsultas
-// y hacerlas con Prisma Client sería muy difícil o imposible - Juan
-// $queryRaw siempre devuelve un array de objetos (las filas del resultado)
+// Lo usamos porque el informe tiene queries complejas con subconsultas y agrupaciones
 
 class InformeModel {
 
@@ -38,8 +36,6 @@ class InformeModel {
                     WHERE estado != 'cancelado')                             AS ticket_promedio
         `;
 
-        // MySQL devuelve los COUNT como BigInt y JSON no sabe convertirlos solo
-        // por eso los pasamos a Number antes de mandarlos - Leo
         const r = resultado[0];
         return {
             total_clientes:      Number(r.total_clientes),
@@ -144,6 +140,60 @@ class InformeModel {
             pedidos_atendidos:  Number(f.pedidos_atendidos),
             pedidos_entregados: Number(f.pedidos_entregados),
             total_vendido:      Number(f.total_vendido)
+        }));
+    }
+
+    // Informe territorial: clientes, pedidos y facturación agrupados por localidad, provincia y país
+    // Se agrupan clientes y pedidos por separado antes de unirlos para evitar duplicar filas
+    async resumenPorLocalidad() {
+        const filas = await prisma.$queryRaw<{
+            id_localidad: number;
+            localidad: string;
+            provincia: string;
+            pais: string;
+            codigo_iso2: string;
+            cantidad_clientes: bigint;
+            cantidad_pedidos: bigint;
+            facturacion_total: number;
+        }[]>`
+            SELECT
+                l.id_localidad,
+                l.nombre                          AS localidad,
+                pr.nombre                         AS provincia,
+                pa.nombre                         AS pais,
+                pa.codigo_iso2,
+                COALESCE(cli.cantidad_clientes, 0) AS cantidad_clientes,
+                COALESCE(ped.cantidad_pedidos, 0)  AS cantidad_pedidos,
+                COALESCE(ped.facturacion_total, 0) AS facturacion_total
+            FROM localidades l
+            JOIN provincias pr ON pr.id_provincia = l.id_provincia
+            JOIN paises pa     ON pa.id_pais = pr.id_pais
+            LEFT JOIN (
+                SELECT id_localidad, COUNT(*) AS cantidad_clientes
+                FROM clientes
+                GROUP BY id_localidad
+            ) cli ON cli.id_localidad = l.id_localidad
+            LEFT JOIN (
+                SELECT
+                    id_localidad_envio,
+                    COUNT(*)                  AS cantidad_pedidos,
+                    COALESCE(SUM(total), 0)   AS facturacion_total
+                FROM pedidos
+                WHERE estado != 'cancelado'
+                GROUP BY id_localidad_envio
+            ) ped ON ped.id_localidad_envio = l.id_localidad
+            ORDER BY facturacion_total DESC, cantidad_clientes DESC, l.nombre ASC
+        `;
+
+        return filas.map(f => ({
+            id_localidad:      f.id_localidad,
+            localidad:         f.localidad,
+            provincia:         f.provincia,
+            pais:              f.pais,
+            codigo_iso2:       f.codigo_iso2,
+            cantidad_clientes: Number(f.cantidad_clientes),
+            cantidad_pedidos:  Number(f.cantidad_pedidos),
+            facturacion_total: Number(f.facturacion_total)
         }));
     }
 }

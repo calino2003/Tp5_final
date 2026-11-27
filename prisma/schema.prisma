@@ -7,87 +7,213 @@ datasource db {
   provider = "mysql"
 }
 
-// [TP5] Todas las tablas del negocio llevan auditoría:
-//   created_at se carga solo al crear (DEFAULT CURRENT_TIMESTAMP)
-//   updated_at lo escribe Prisma (@updatedAt) en cada update, y la BD también
-//              lo refresca con ON UPDATE CURRENT_TIMESTAMP si alguien toca la tabla a mano
-// Los tipos y largos coinciden con database.sql - Juan
+// ============================================================
+//  TABLAS NUEVAS — Nivel territorial, documentos, estados y bonificaciones
+// ============================================================
+
+model paises {
+  id_pais          Int          @id @default(autoincrement())
+  nombre           String       @db.VarChar(60)
+  codigo_iso2      String       @unique(map: "uq_paises_iso2") @db.Char(2)
+  codigo_iso3      String       @unique(map: "uq_paises_iso3") @db.Char(3)
+  moneda           String       @default("ARS") @db.Char(3)
+  prefijo_telefono String?      @db.VarChar(6)
+  activo           Boolean      @default(true)
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+  provincias       provincias[]
+  clientes         clientes[]
+}
+
+model provincias {
+  id_provincia Int           @id @default(autoincrement())
+  id_pais      Int
+  nombre       String        @db.VarChar(80)
+  codigo       String?       @db.VarChar(20)
+  activo       Boolean       @default(true)
+  created_at   DateTime      @default(now())
+  updated_at   DateTime      @updatedAt
+  paises       paises        @relation(fields: [id_pais], references: [id_pais], onDelete: Restrict, onUpdate: Cascade, map: "fk_provincias_pais")
+  localidades  localidades[]
+
+  @@unique([id_pais, nombre], map: "uq_provincias_pais_nombre")
+  @@index([id_pais], map: "fk_provincias_pais")
+}
+
+model localidades {
+  id_localidad             Int                        @id @default(autoincrement())
+  id_provincia             Int
+  nombre                   String                     @db.VarChar(80)
+  codigo_postal            String?                    @db.VarChar(10)
+  activo                   Boolean                    @default(true)
+  created_at               DateTime                   @default(now())
+  updated_at               DateTime                   @updatedAt
+  provincias               provincias                 @relation(fields: [id_provincia], references: [id_provincia], onDelete: Restrict, onUpdate: Cascade, map: "fk_localidades_provincia")
+  clientes                 clientes[]
+  empleados                empleados[]
+  proveedores              proveedores[]
+  pedidos                  pedidos[]
+  compania_envio_localidad compania_envio_localidad[]
+
+  @@unique([id_provincia, nombre], map: "uq_localidades_provincia_nombre")
+  @@index([id_provincia], map: "fk_localidades_provincia")
+}
+
+model tipos_documento {
+  id_tipo_documento Int        @id @default(autoincrement())
+  codigo            String     @unique(map: "uq_tipos_documento_codigo") @db.VarChar(12)
+  nombre            String     @db.VarChar(40)
+  longitud_min      Int        @db.TinyInt
+  longitud_max      Int        @db.TinyInt
+  requiere_pais     Boolean    @default(true)
+  activo            Boolean    @default(true)
+  clientes          clientes[]
+}
+
+model estados_pedido {
+  id_estado Int       @id @default(autoincrement())
+  codigo    String    @unique(map: "uq_estados_pedido_codigo") @db.VarChar(20)
+  orden     Int       @db.TinyInt
+  activo    Boolean   @default(true)
+  pedidos   pedidos[]
+}
+
+model bonificaciones {
+  id_bonificacion Int       @id @default(autoincrement())
+  id_empleado     Int
+  tipo            String    @db.VarChar(20)
+  fecha           DateTime  @db.Date
+  monto           Decimal   @db.Decimal(10, 2)
+  moneda          String    @default("ARS") @db.Char(3)
+  motivo          String?   @db.VarChar(150)
+  created_at      DateTime  @default(now())
+  empleados       empleados @relation(fields: [id_empleado], references: [id_empleado], onDelete: Restrict, onUpdate: Cascade, map: "fk_bonif_empleado")
+
+  @@index([id_empleado, fecha], map: "idx_bonif_empleado_fecha")
+}
+
+model compania_envio_localidad {
+  id_compania     Int
+  id_localidad    Int
+  costo_envio     Decimal?        @db.Decimal(10, 2)
+  dias_entrega    Int?            @db.TinyInt
+  companias_envio companias_envio @relation(fields: [id_compania], references: [id_compania], onDelete: Restrict, onUpdate: Cascade, map: "fk_cel_compania")
+  localidades     localidades     @relation(fields: [id_localidad], references: [id_localidad], onDelete: Restrict, onUpdate: Cascade, map: "fk_cel_localidad")
+
+  @@id([id_compania, id_localidad])
+  @@index([id_localidad], map: "fk_cel_localidad")
+}
+
+// ============================================================
+//  TABLAS DEL NEGOCIO (actualizadas sin borrar campos viejos)
+// ============================================================
 
 model clientes {
-  id_cliente Int       @id @default(autoincrement())
-  nombre     String    @db.VarChar(50)
-  apellido   String    @db.VarChar(50)
-  dni        String    @unique(map: "dni") @db.VarChar(15)
-  direccion  String?   @db.VarChar(150)
-  telefono   String?   @db.VarChar(20)
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
-  pedidos    pedidos[]
+  id_cliente           Int              @id @default(autoincrement())
+  nombre               String           @db.VarChar(50)
+  apellido             String           @db.VarChar(50)
+  id_tipo_documento    Int?
+  numero_documento     String?          @db.VarChar(30)
+  id_pais_emisor       Int?
+  dni                  String           @unique(map: "dni") @db.VarChar(15)
+  id_localidad         Int?
+  calle                String?          @db.VarChar(100)
+  numero               String?          @db.VarChar(12)
+  piso                 String?          @db.VarChar(10)
+  departamento         String?          @db.VarChar(10)
+  codigo_postal        String?          @db.VarChar(10)
+  direccion_referencia String?          @db.VarChar(150)
+  direccion            String?          @db.VarChar(150)
+  telefono             String?          @db.VarChar(20)
+  activo               Boolean          @default(true)
+  created_at           DateTime         @default(now())
+  updated_at           DateTime         @updatedAt
+  pedidos              pedidos[]
+  tipos_documento      tipos_documento? @relation(fields: [id_tipo_documento], references: [id_tipo_documento], onDelete: Restrict, map: "fk_clientes_tipo_documento")
+  paises               paises?          @relation(fields: [id_pais_emisor], references: [id_pais], onDelete: Restrict, map: "fk_clientes_pais_emisor")
+  localidades          localidades?     @relation(fields: [id_localidad], references: [id_localidad], onDelete: Restrict, map: "fk_clientes_localidad")
+
+  @@unique([id_tipo_documento, id_pais_emisor, numero_documento], map: "uq_cliente_documento")
+  @@index([id_tipo_documento], map: "fk_clientes_tipo_documento")
+  @@index([id_pais_emisor], map: "fk_clientes_pais_emisor")
+  @@index([id_localidad], map: "fk_clientes_localidad")
+  @@index([apellido], map: "idx_clientes_apellido")
 }
 
 model companias_envio {
-  id_compania Int       @id @default(autoincrement())
-  nombre      String    @db.VarChar(100)
-  telefono    String?   @db.VarChar(20)
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  pedidos     pedidos[]
+  id_compania              Int                        @id @default(autoincrement())
+  nombre                   String                     @db.VarChar(100)
+  telefono                 String?                    @db.VarChar(20)
+  created_at               DateTime                   @default(now())
+  updated_at               DateTime                   @updatedAt
+  pedidos                  pedidos[]
+  compania_envio_localidad compania_envio_localidad[]
 }
 
-// [TP5] Corrección 1: la identidad de un detalle es (pedido, producto).
-// No tiene id propio: la tabla de línea de detalle no existe sin su pedido ni sin su
-// producto. Es el mismo diseño que la tabla intermedia CursosEstudiantes de clase
-// (@@id([curso_id, estudiante_id])), y así se elimina el id_detalle al pedo - Juan
 model detalles_pedido {
   id_pedido       Int
   id_producto     Int
   cantidad        Int
-  precio_unitario Decimal    @db.Decimal(10, 2)
-  subtotal        Decimal    @db.Decimal(10, 2)
-  created_at      DateTime   @default(now())
-  updated_at      DateTime   @updatedAt
-  pedidos         pedidos    @relation(fields: [id_pedido], references: [id_pedido], onDelete: Cascade, map: "fk_detalles_pedido")
-  productos       productos  @relation(fields: [id_producto], references: [id_producto], onDelete: Restrict, map: "fk_detalles_producto")
+  precio_unitario Decimal   @db.Decimal(10, 2)
+  subtotal        Decimal   @db.Decimal(10, 2)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  pedidos         pedidos   @relation(fields: [id_pedido], references: [id_pedido], onDelete: Cascade, map: "fk_detalles_pedido")
+  productos       productos @relation(fields: [id_producto], references: [id_producto], onDelete: Restrict, map: "fk_detalles_producto")
 
-  // En MySQL la clave primaria siempre se llama PRIMARY, así que no hace falta
-  // ponerle nombre con map (a diferencia de lo que se ve en otras bases)
   @@id([id_pedido, id_producto])
   @@index([id_producto], map: "fk_detalles_producto")
 }
 
 model empleados {
-  id_empleado Int       @id @default(autoincrement())
-  nombre      String    @db.VarChar(50)
-  apellido    String    @db.VarChar(50)
-  cargo       String?   @db.VarChar(50)
-  // [TP5] Soft delete: un empleado con ventas no se borra, se desactiva.
-  // Así los pedidos existentes siguen sabiendo quién hizo la venta
-  activo      Boolean   @default(true)
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  pedidos     pedidos[]
+  id_empleado      Int              @id @default(autoincrement())
+  nombre           String           @db.VarChar(50)
+  apellido         String           @db.VarChar(50)
+  cargo            String?          @db.VarChar(50)
+  fecha_nacimiento DateTime?        @db.Date
+  fecha_ingreso    DateTime?        @db.Date
+  fecha_salida     DateTime?        @db.Date
+  id_localidad     Int?
+  activo           Boolean          @default(true)
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @updatedAt
+  pedidos          pedidos[]
+  bonificaciones   bonificaciones[]
+  usuario          usuario?
+  localidades      localidades?     @relation(fields: [id_localidad], references: [id_localidad], onDelete: Restrict, map: "fk_empleados_localidad")
+
+  @@index([id_localidad], map: "fk_empleados_localidad")
 }
 
 model pedidos {
-  id_pedido       Int               @id @default(autoincrement())
-  fecha           DateTime?         @default(now()) @db.DateTime(0)
-  total           Decimal           @default(0.00) @db.Decimal(10, 2)
-  estado          pedidos_estado    @default(pendiente)
-  id_cliente      Int?
-  id_empleado     Int?
-  id_compania     Int?
-  created_at      DateTime          @default(now())
-  updated_at      DateTime          @updatedAt
-  detalles_pedido detalles_pedido[]
-  clientes        clientes?         @relation(fields: [id_cliente], references: [id_cliente], onDelete: Restrict, map: "fk_pedidos_cliente")
-  // [TP5] Restrict en empleado y compañía: no se puede borrar un registro que ya
-  // tiene ventas registradas (la API contesta 409 con datos asociados)
-  empleados       empleados?        @relation(fields: [id_empleado], references: [id_empleado], onDelete: Restrict, map: "fk_pedidos_empleado")
-  companias_envio companias_envio?  @relation(fields: [id_compania], references: [id_compania], onDelete: Restrict, map: "fk_pedidos_compania")
+  id_pedido          Int               @id @default(autoincrement())
+  fecha              DateTime?         @default(now()) @db.DateTime(0)
+  total              Decimal           @default(0.00) @db.Decimal(10, 2)
+  moneda             String            @default("ARS") @db.Char(3)
+  tipo_cambio        Decimal?          @db.Decimal(12, 6)
+  estado             pedidos_estado    @default(pendiente)
+  id_estado          Int?
+  id_cliente         Int
+  id_empleado        Int
+  id_compania        Int?
+  id_localidad_envio Int?
+  direccion_envio    String?           @db.VarChar(200)
+  created_at         DateTime          @default(now())
+  updated_at         DateTime          @updatedAt
+  detalles_pedido    detalles_pedido[]
+  clientes           clientes          @relation(fields: [id_cliente], references: [id_cliente], onDelete: Restrict, map: "fk_pedidos_cliente")
+  empleados          empleados         @relation(fields: [id_empleado], references: [id_empleado], onDelete: Restrict, map: "fk_pedidos_empleado")
+  companias_envio    companias_envio?  @relation(fields: [id_compania], references: [id_compania], onDelete: Restrict, map: "fk_pedidos_compania")
+  estados_pedido     estados_pedido?   @relation(fields: [id_estado], references: [id_estado], onDelete: Restrict, map: "fk_pedidos_estado")
+  localidades        localidades?      @relation(fields: [id_localidad_envio], references: [id_localidad], onDelete: Restrict, map: "fk_pedidos_localidad_envio")
 
   @@index([id_cliente], map: "fk_pedidos_cliente")
   @@index([id_compania], map: "fk_pedidos_compania")
   @@index([id_empleado], map: "fk_pedidos_empleado")
+  @@index([id_estado], map: "fk_pedidos_estado")
+  @@index([id_localidad_envio], map: "fk_pedidos_localidad_envio")
+  @@index([fecha], map: "idx_pedidos_fecha")
+  @@index([id_cliente, fecha], map: "idx_pedidos_cliente_fecha")
 }
 
 model productos {
@@ -95,36 +221,42 @@ model productos {
   nombre          String            @db.VarChar(100)
   descripcion     String?           @db.Text
   precio_unitario Decimal           @db.Decimal(10, 2)
+  moneda          String            @default("ARS") @db.Char(3)
   stock           Int               @default(0)
+  activo          Boolean           @default(true)
   id_proveedor    Int?
   created_at      DateTime          @default(now())
   updated_at      DateTime          @updatedAt
   detalles_pedido detalles_pedido[]
-  // [TP5] Restrict: no se borra un proveedor que todavía tiene productos cargados
   proveedores     proveedores?      @relation(fields: [id_proveedor], references: [id_proveedor], onDelete: Restrict, map: "fk_productos_proveedor")
 
   @@index([id_proveedor], map: "fk_productos_proveedor")
+  @@index([nombre], map: "idx_productos_nombre")
 }
 
 model proveedores {
-  id_proveedor Int         @id @default(autoincrement())
-  razon_social String      @db.VarChar(100)
-  cuit         String      @unique(map: "cuit") @db.VarChar(15)
-  telefono     String?     @db.VarChar(20)
-  email        String?     @db.VarChar(100)
-  created_at   DateTime    @default(now())
-  updated_at   DateTime    @updatedAt
+  id_proveedor Int          @id @default(autoincrement())
+  razon_social String       @db.VarChar(100)
+  cuit         String       @unique(map: "cuit") @db.VarChar(15)
+  telefono     String?      @db.VarChar(20)
+  email        String?      @db.VarChar(100)
+  id_localidad Int?
+  created_at   DateTime     @default(now())
+  updated_at   DateTime     @updatedAt
   productos    productos[]
+  localidades  localidades? @relation(fields: [id_localidad], references: [id_localidad], onDelete: Restrict, map: "fk_proveedores_localidad")
+
+  @@index([id_localidad], map: "fk_proveedores_localidad")
 }
 
-// Tabla agregada en el TP5 (consigna 1.3 - se pueden agregar tablas necesarias).
-// Representa a los usuarios que operarían el sistema (empleados con acceso).
-// Solo se modela la estructura; la autenticación real (bcrypt, JWT) está fuera
-// del alcance de este trabajo práctico.
 model usuario {
-  id_usuario Int    @id @default(autoincrement())
-  username   String @unique @db.VarChar(50)
-  password   String @db.VarChar(255)
+  id_usuario  Int        @id @default(autoincrement())
+  id_empleado Int?       @unique(map: "uq_usuario_empleado")
+  username    String     @unique @db.VarChar(50)
+  password    String     @db.VarChar(255)
+  email       String?    @db.VarChar(100)
+  rol         String     @default("operador") @db.VarChar(30)
+  empleados   empleados? @relation(fields: [id_empleado], references: [id_empleado], onDelete: Restrict, map: "fk_usuario_empleado")
 }
 
 enum pedidos_estado {

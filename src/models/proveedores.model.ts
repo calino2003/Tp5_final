@@ -1,12 +1,35 @@
 import type { Prisma } from '../generated/prisma/client.js';
 import prisma from '../config/prisma.js';
 
+const incluirLocalidad = {
+    localidades: {
+        select: {
+            id_localidad: true,
+            nombre: true,
+            codigo_postal: true,
+            provincias: {
+                select: {
+                    id_provincia: true,
+                    nombre: true,
+                    paises: { select: { id_pais: true, nombre: true, codigo_iso2: true } }
+                }
+            }
+        }
+    }
+};
+
 class ProveedorModel {
 
     async crear(proveedor: Record<string, any>) {
-        const { razon_social, cuit, telefono, email } = proveedor;
+        const { razon_social, cuit, telefono, email, id_localidad } = proveedor;
         return prisma.proveedores.create({
-            data: { razon_social, cuit, telefono: telefono ?? null, email: email ?? null }
+            data: {
+                razon_social,
+                cuit,
+                telefono: telefono ?? null,
+                email: email ?? null,
+                id_localidad: id_localidad != null ? Number(id_localidad) : null
+            }
         });
     }
 
@@ -15,12 +38,14 @@ class ProveedorModel {
         if (filtros.razon_social) where.razon_social = { contains: String(filtros.razon_social) };
         if (filtros.cuit) where.cuit = String(filtros.cuit);
         if (filtros.email) where.email = { contains: String(filtros.email) };
-        return prisma.proveedores.findMany({ where });
+        if (filtros.id_localidad) where.id_localidad = Number(filtros.id_localidad);
+
+        return prisma.proveedores.findMany({
+            where,
+            include: incluirLocalidad
+        });
     }
 
-    // Muestra cuántos productos y cuánto stock tiene cada proveedor
-    // El _count con select es la forma de Prisma de hacer COUNT con JOIN - Leo
-    // TODO: sería bueno agregar también el precio promedio de productos por proveedor
     async obtenerEstadisticas() {
         const [proveedores, stocks] = await Promise.all([
             prisma.proveedores.findMany({
@@ -40,20 +65,38 @@ class ProveedorModel {
     }
 
     async obtenerPorId(id: number) {
-        return prisma.proveedores.findUnique({ where: { id_proveedor: id } });
+        return prisma.proveedores.findUnique({
+            where: { id_proveedor: id },
+            include: incluirLocalidad
+        });
     }
 
     async actualizar(id: number, proveedor: Record<string, any>) {
-        const { razon_social, cuit, telefono, email } = proveedor;
+        const { razon_social, cuit, telefono, email, id_localidad } = proveedor;
         return prisma.proveedores.update({
             where: { id_proveedor: id },
-            data: { razon_social, cuit, telefono: telefono ?? null, email: email ?? null }
+            data: {
+                razon_social,
+                cuit,
+                telefono: telefono ?? null,
+                email: email ?? null,
+                id_localidad: id_localidad != null ? Number(id_localidad) : null
+            }
         });
     }
 
     async actualizarParcial(id: number, proveedor: Record<string, any>) {
-        const permitidas = ['razon_social', 'cuit', 'telefono', 'email'];
-        const data = Object.fromEntries(Object.entries(proveedor).filter(([campo]) => permitidas.includes(campo)));
+        const permitidas = ['razon_social', 'cuit', 'telefono', 'email', 'id_localidad'];
+        const data: Record<string, any> = {};
+
+        for (const campo of permitidas) {
+            if (proveedor[campo] !== undefined) {
+                data[campo] = campo === 'id_localidad'
+                    ? (proveedor[campo] === null ? null : Number(proveedor[campo]))
+                    : proveedor[campo];
+            }
+        }
+
         if (Object.keys(data).length === 0) return null;
         return prisma.proveedores.update({ where: { id_proveedor: id }, data });
     }
